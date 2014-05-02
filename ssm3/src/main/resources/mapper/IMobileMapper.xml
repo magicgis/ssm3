@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.tydic.mobile.application.portal.mapper.IMobileMapper">
+
+    <!-- 应用信息MAP映射关系 -->
+    <resultMap type="AppInfoVO" id="mobileAppMap">
+    
+        <result column="app_id" property="app_id"/>
+        <result column="sort_id" property="app_sort_id"/>
+        <result column="app_detail_icon" property="detail_icon_url"/>
+        <result column="app_install_icon" property="install_icon_url"/>
+        <result column="app_list_icon" property="list_icon_url"/>
+        <result column="app_name" property="name"/>
+        <result column="app_content" property="content"/>
+        <result column="app_version" property="version"/>
+        <result column="app_size" property="size"/>
+        <result column="create_date" property="on_line_time"/>
+        <result column="app_pkg_url" property="pkg_url"/>
+        
+        <!-- 一个应用可以对应多个应用预览图标 -->
+        <collection property="preview_imges" ofType="AppPreviewImageVO" resultMap="mobileAppPreviewImageMap"></collection>
+        
+    </resultMap>
+    
+    
+    <!-- 预览图片映射关系 -->
+    <resultMap type="AppPreviewImageVO" id="mobileAppPreviewImageMap">
+    	<id column="preview_image_id" property="previewImageId"/>
+    	<result column="preview_image_url" property="previewImageUrl"/>
+    	<result column="api_state" property="state"/>
+    	<result column="api_state_date" property="stateDate"/>
+    </resultMap>
+
+	<!--查询应用分类 -->
+	<select id="findAppSort" resultType="AppInfoSortVO"  parameterType="java.lang.String">
+		SELECT SORT_ID app_sort_id,SORT_NAME app_sort_name FROM  APP_SORT WHERE 1=1
+		  <if test="array!=null">
+		  AND
+		  	SORT_ID IN
+			  <foreach collection="array" item="item" index="index" open="(" separator="," close=")">
+	        		#{item,jdbcType=NUMERIC}
+	         </foreach>
+		  </if>
+        AND STATE = '10A'	
+        ORDER BY SORT_LEVEL ASC
+	</select>
+	
+	<!--查询应用 -->
+	<select id="findApp" resultMap="mobileAppMap"  parameterType="AppSearchVOPlus">
+	SELECT      t.app_id,
+	            t.sort_id,
+	            t.region_id,
+                t.app_name ,
+                t.app_install_icon,
+                t.app_list_icon ,
+                t.app_detail_icon ,
+                t.app_content,
+                t.create_date,
+                t1.app_version ,
+                t1.app_size ,
+                t1.app_pkg_url, 
+                t2.preview_image_id,
+                t2.preview_image_url
+       FROM
+           APP_INFO t, APP_PACKAGE t1 , APP_PREVIEW_IMAGE t2             
+       WHERE    t.app_id = t1.app_id(+)
+            AND t.app_id = t2.app_id(+)
+            AND t.STATE = '10A'
+            AND t1.STATE = '10A' 
+            AND t1.app_cur_state='10P'
+            AND t.app_state='10P'
+            AND ( t2.STATE = '10A' OR t2.STATE is null)
+                  
+            AND( t.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = #{os_type,jdbcType=VARCHAR} )
+               or 
+               t.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = '跨平台' )  )
+            
+            
+            AND t1.mob_ter_id  =
+             (select  key from com_code_info where tab_name = 'APP_PACKAGE' AND Col_name ='MOB_TER_ID' AND value =  #{terminal_type,jdbcType=VARCHAR} )
+                      
+		  <if test="app_ids!=null and app_ids!='' ">
+		       AND t.app_id in 
+			  <foreach collection="app_ids" item="item" index="index" open="(" separator="," close=")">
+	        		${item}
+	          </foreach>
+		  </if>
+		  
+		  <if test="app_sort_ids!=null and app_sort_ids!=''">
+		       AND t.sort_id in 
+			  <foreach collection="app_sort_ids" item="item" index="index" open="(" separator="," close=")">
+	        		${item}
+	         </foreach>
+		  </if>
+		  
+		  <if test="region_ids!=null and region_ids!='' ">
+	      AND
+		  (
+		  	T.REGION_ID IN
+			  <foreach collection="region_ids" item="item" index="index" open="(" separator="union" close=")">
+				  SELECT  region_id 
+ 			      FROM sys_region 
+			      where state='10A' 
+ 			      start with  region_id =  ${item}
+ 			      connect by  region_id = prior region_pid 
+	         </foreach>
+	        OR T.REGION_ID = 8100000
+	       )
+		  </if>
+		   <if test="app_name!=null and app_name!=''">
+		       AND t.app_name like '%${app_name}%'
+		   </if>
+	</select>
+	
+	
+	<!-- 查询可以更新的应用 -->
+	<select id="findAppForUpdate" resultType="AppUpdateVO"  parameterType="AppVersionVO">
+	    SELECT distinct t.APP_ID,
+		       t.APP_UPDATE_LOG,
+		       t.APP_FORCE_UPDATE,
+		       t.APP_VERSION      AS CUR_VERSION,
+		       t.STATE_DATE,
+		       t.APP_PKG_URL       AS PKG_URL
+		  FROM APP_PACKAGE t,app_info t1
+		 WHERE t.APP_ID = #{app_id,jdbcType=NUMERIC}  and t.app_id = t1.app_id
+		   AND t.app_cur_state='10P'
+		   AND t1.app_state='10P'
+		   AND t.APP_VERSION != #{version,jdbcType=VARCHAR}
+	       AND t.STATE = '10A'	AND t1.state='10A'
+	       AND( t1.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = #{os_type,jdbcType=VARCHAR} )
+               or 
+               t1.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = '跨平台' )  )
+	       
+	</select>
+	
+   <!-- 查询可以更新的托盘 -->
+   <select id="findPortalForUpdate" resultType="MobilePortalVO"  parameterType="map">
+   		 SELECT  T.STATE_DATE AS  PORTAL_DATE,
+		    T.PORTAL_ENGINE_ID AS PORTAL_ID,
+		    T.IS_FORCED_UPDATE AS PORTAL_FORCE_UPDATE ,
+            T.CLI_VERSION AS PORTAL_VERSION ,
+            <choose>
+            	<when test="osType=='iOS'">
+            	 	T.PLIST_URL AS PKG_URL ,
+            	</when>
+            	<otherwise>
+            		T.ATTACH_URL AS PKG_URL , 
+            	</otherwise>
+            </choose>
+            T.CLI_PAC_DESC AS  PORTAL_UPDATE_LOG,
+            T.FILE_SIZES AS file_size
+        FROM PORTAL_PACKAGE T,PORTAL_ENGINE t1 
+    WHERE 
+         t.portal_engine_id = t1.portal_engine_id
+         and t1.app_id = #{appId,jdbcType=VARCHAR}
+         AND #{version,jdbcType=VARCHAR} != T.CLI_VERSION
+	     AND t.STATE = '10A' and t1.state='10A'
+	     AND T.CLI_PAC_STATE='10P'  
+	     and t1.mob_os_id = (SELECT key FROM com_code_info  where tab_name='APP_INFO' AND col_name='MOB_OS_ID'  AND value=#{osType,jdbcType=VARCHAR})
+	     AND t.mob_ter_id  =
+             (select  key from com_code_info where tab_name = 'APP_PACKAGE' AND Col_name ='MOB_TER_ID' AND value =  #{terminal_type,jdbcType=VARCHAR} )
+	</select>
+
+	<!-- 查询当前托盘 -->
+   <select id="findPortalForUpdateByVersion" resultType="MobilePortalVO"  parameterType="map">
+	 SELECT T.STATE_DATE AS  PORTAL_DATE,
+		    T.PORTAL_ENGINE_ID AS PORTAL_ID,
+		    T.IS_FORCED_UPDATE AS PORTAL_FORCE_UPDATE ,
+            T.CLI_VERSION AS PORTAL_VERSION ,
+            	<choose>
+	            	<when test="osType=='iOS'">
+	            		T.PLIST_URL AS PKG_URL , 
+	               	</when>
+	               	<otherwise> 
+	               	    T.ATTACH_URL AS PKG_URL ,
+	               	 </otherwise>
+			</choose>   
+            T.CLI_PAC_DESC AS  PORTAL_UPDATE_LOG,
+            T.FILE_SIZES AS file_size
+        FROM PORTAL_PACKAGE T,PORTAL_ENGINE t1 
+    WHERE 
+         t.portal_engine_id = t1.portal_engine_id
+         and t1.app_id = #{appId,jdbcType=VARCHAR}
+         AND #{version,jdbcType=VARCHAR} = T.CLI_VERSION
+	     AND  t1.state='10A'
+	     AND T.CLI_PAC_STATE='10P'   
+	     And t1.mob_os_id = (SELECT key FROM com_code_info  where tab_name='APP_INFO' AND col_name='MOB_OS_ID'  AND value= #{osType,jdbcType=VARCHAR})
+	     AND t.mob_ter_id  =
+             (select  key from com_code_info where tab_name = 'APP_PACKAGE' AND Col_name ='MOB_TER_ID' AND value =  #{terminal_type,jdbcType=VARCHAR} )
+</select>  
+	  
+	  
+	
+	<!-- 查询默认设置的应用 -->
+   <select id="findAppDefault" resultType="AppToSet"   parameterType="map">
+	    SELECT  T.APP_NAME,T1.APP_PKG_URL AS PKG_URL FROM
+				APP_PACKAGE T1 ,APP_INFO T,APP_DEFAULT T3
+		WHERE T.APP_ID = T1.APP_ID AND T.APP_ID=T3.APP_ID
+		 <if test="region_ids!=null">
+	      AND
+		  (
+		  	T.REGION_ID IN
+			  <foreach collection="region_ids" item="item" index="index" open="(" separator="union" close=")">
+				  SELECT  region_id 
+ 			      FROM sys_region 
+			      where state='10A' 
+ 			      start with  region_id =  ${item}
+ 			      connect by  region_id = prior region_pid 
+	         </foreach>
+	        OR T.REGION_ID = 8100000
+	       )
+		 </if>
+		 AND T.STATE = '10A'
+		 AND T1.STATE ='10A'
+		 AND T3.STATE ='10A'
+		 AND t1.app_cur_state='10P'
+		 AND t.app_state='10P'
+		 AND 
+         ( t.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = #{os_type,jdbcType=VARCHAR} )
+               or 
+               t.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = '跨平台' )  )
+         
+            AND t1.mob_ter_id  =
+             (select  key from com_code_info where tab_name = 'APP_PACKAGE' AND Col_name ='MOB_TER_ID' AND value =  #{terminal_type,jdbcType=VARCHAR} )
+		 
+	</select>
+	
+	
+	<!-- 查询推荐的应用 -->
+   <select id="findAppRecommend" resultMap="mobileAppMap"   parameterType="map">
+	    SELECT  
+	            t.app_id,
+	            t.sort_id,
+	            t.region_id,
+                t.app_name ,
+                t.app_install_icon ,
+                t.app_list_icon ,
+                t.app_detail_icon ,
+                t.app_content ,
+                t.create_date,
+                t1.app_version ,
+                t1.app_size ,
+                t1.app_pkg_url, 
+                t2.preview_image_id,
+                t2.preview_image_url
+	    
+	     FROM
+			    APP_INFO t, APP_PACKAGE t1 , APP_PREVIEW_IMAGE t2   
+		WHERE t.APP_ID = t1.APP_ID
+		AND  t1.APP_ID = t2.APP_ID
+		 <if test="region_ids!=null">
+		   AND
+		  (
+		  	T.REGION_ID IN
+			  <foreach collection="region_ids" item="item" index="index" open="(" separator="union" close=")">
+				  SELECT  region_id 
+ 			      FROM sys_region 
+			      where state='10A' 
+ 			      start with  region_id =  ${item}
+ 			      connect by  region_id = prior region_pid 
+	         </foreach>
+	        OR T.REGION_ID = 8100000
+	       )
+		 </if>
+		 AND T.STATE = '10A'
+		 AND T1.STATE ='10A'
+		 AND t1.app_cur_state='10P'
+		 AND t.app_state='10P'
+	     AND
+         ( t.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = #{os_type,jdbcType=VARCHAR} )
+               or 
+               t.mob_os_id =
+               (select  key from com_code_info where tab_name = 'APP_INFO' AND Col_name ='MOB_OS_ID' AND value = '跨平台' )  )
+         
+            AND t1.mob_ter_id  =
+        (select  key from com_code_info where tab_name = 'APP_PACKAGE' AND Col_name ='MOB_TER_ID' AND value =  #{terminal_type,jdbcType=VARCHAR} )
+	</select>
+	
+	
+	
+	
+	 <select id="findRegions" resultType="Region" parameterType="map">
+    SELECT  to_char(level) "level",
+    sys_region.region_id,
+    sys_region.region_code,
+    sys_region.region_name,
+    sys_region.region_pid
+    FROM sys_region
+    where state='10A'
+    AND region_id != 8100000
+    <if test="region_id!=null and region_id!=''">
+          start with  region_id = #{region_id,jdbcType=NUMERIC}
+    </if>
+     <if test="region_id==null || region_id==''">
+          start with  region_pid is null
+    </if>   
+   
+    connect by prior region_id = region_pid
+    order by region_code asc
+     
+	 </select> 
+	
+</mapper>
