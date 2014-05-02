@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.tydic.mobile.application.authentication.mapper.IAuthenticationMapper">
+
+	
+	<!-- 登录验证 -->
+   <select id="login" resultType="java.lang.String"   parameterType="map">
+      SELECT Staff_Id FROM
+		        SYS_STAFF 
+	  where
+		  login_code = #{userName,jdbcType=VARCHAR}
+		  AND password = #{password,jdbcType=VARCHAR}
+		  AND system_from='3'
+		  AND state='10A'
+	</select>
+	
+	
+	 <!-- 创建登录日志 -->
+	<insert id="createLoginLog"    parameterType="map">
+	 insert into SSO_USER_LOGIN_LOG
+	   	values
+		  (seq_user_login_log.Nextval,
+		   #{staff_id,jdbcType=NUMERIC},
+		   sysdate,
+         #{ticket,jdbcType=VARCHAR},
+       sysdate,
+       null,
+     (sysdate+(select a.value
+		  from com_code_info a
+		   where upper(a.tab_name) = upper('PAD_AUTHOR_SESSION')
+		   and upper(a.col_name) = upper('time_out')
+		   and a.state = '10A')/(24*60)),
+       '10A',
+       sysdate,
+       sysdate)
+	</insert>
+	
+     <!-- 退出登录 -->
+	<update id="logout"    parameterType="java.lang.String">
+	   update SSO_USER_LOGIN_LOG
+	     set 
+	        state = '10X',
+	        state_date =sysdate,
+		    login_out_date =sysdate,
+	        exp_date=sysdate
+	    where ticket =  #{ticket,jdbcType=VARCHAR} 
+	    AND state = '10A'
+     </update>
+     
+     
+     <!-- 创建验证票据日志 -->
+	<insert id="create_ticket_valid_log"  parameterType="map">
+	     insert into SSO_TICKET_VALID_LOG values 
+	     ( seq_sso_ticket_valid_log.nextval,
+	       #{ticket,jdbcType=VARCHAR},
+	       null,
+	       sysdate,
+	       #{valid_result,jdbcType=VARCHAR},
+	       '10A',
+	       sysdate,
+	       sysdate
+	      )
+	</insert>
+     
+   <!-- 票据认证是否失效 -->
+   <select id="isTicketValid" resultType="TicketValidVO"   parameterType="java.lang.String">
+        select ss.staff_id AS user_id, ss.login_code,su.eff_date,su.exp_date from SSO_USER_LOGIN_LOG su
+            left join sys_staff ss on su.staff_id = ss.staff_id
+            where su.ticket =  #{ticket,jdbcType=VARCHAR}
+            AND su.state='10A'
+            AND ss.state='10A'
+            AND exp_date > sysdate
+   </select>
+   
+   <!-- 重设密码 -->
+   	<update id="resetPwd"    parameterType="map">
+       update sys_staff  set password = #{password,jdbcType=VARCHAR}
+                where staff_id in (SELECT log.staff_id FROM
+            SSO_USER_LOGIN_LOG log where log.ticket = #{ticket,jdbcType=VARCHAR} AND log.state= '10A')
+            AND state ='10A'
+     </update>
+    
+   
+    <!-- 忘记密码  -->
+     <update id="forgotPwd"    parameterType="map">
+       update sys_staff  set password = #{password,jdbcType=VARCHAR}
+                where login_code =#{user_code,jdbcType=VARCHAR} and mob_tel= #{phone,jdbcType=VARCHAR}
+            AND state ='10A'
+     </update> 
+     
+   
+    <!-- 验证用户老密码  -->
+   <select id="validPwd" resultType="int"   parameterType="map">
+           select count(*) from sys_staff ss left join SSO_USER_LOGIN_LOG su
+             on ss.staff_id = su.staff_id where su.ticket = #{ticket,jdbcType=VARCHAR}
+             AND ss.password = #{password,jdbcType=VARCHAR}
+             AND ss.state='10A'
+             AND su.state='10A'
+   </select>
+   
+   
+   <!-- 刷新票据失效时间  -->
+   <update id="updateTicketExpTime"    parameterType="java.lang.String">
+       update SSO_USER_LOGIN_LOG set exp_date= (sysdate+(select a.value
+		  from com_code_info a
+		   where upper(a.tab_name) = upper('PAD_AUTHOR_SESSION')
+		   and upper(a.col_name) = upper('time_out')
+		   and a.state = '10A')/(24*60)) 
+       
+       where ticket =  #{ticket,jdbcType=VARCHAR}
+       AND state ='10A'
+   </update>
+   
+   
+   <!-- 修改用户信息 -->
+   <update id="modifyUserInfo"    parameterType="map">
+       update sys_staff set staff_name =#{staff_name,jdbcType=VARCHAR} ,department= #{department,jdbcType=VARCHAR},post= #{post,jdbcType=VARCHAR} 
+        where staff_id=(
+        SELECT ss.staff_id FROM
+          SSO_USER_LOGIN_LOG su
+            left join sys_staff ss on su.staff_id = ss.staff_id
+            where su.ticket =  #{ticket,jdbcType=VARCHAR} AND su.state='10A' AND ss.state='10A'
+       )
+   </update>
+      
+   <!-- 判断用户是否已经登录 -->   
+   <select id="isLogin" resultType="int"   parameterType="java.lang.String">
+      select count(*) from SSO_USER_LOGIN_LOG su
+            left join sys_staff ss on su.staff_id = ss.staff_id
+            where ss.login_code = #{user_name,jdbcType=VARCHAR}
+            AND su.state='10A'
+            AND ss.state='10A'
+            AND exp_date > sysdate
+   </select>
+   
+   
+   <!--  -->
+    <select id="findAuthVobyTicket" resultType="AppAuthentication"   parameterType="java.lang.String">
+               select ticket,eff_date,exp_date from SSO_USER_LOGIN_LOG where ticket = #{ticket,jdbcType=VARCHAR} AND state='10A' AND exp_date>sysdate
+	</select>
+	
+	<!-- 查询用户信息 -->
+	<select id="findUserInfo"  resultType="UserInfoVO" parameterType="java.lang.String">
+	 select ss.staff_id AS user_id, ss.login_code,ss.region_id,
+	 				       ss.staff_name,ss.department,ss.post,
+       (SELECT REGION_NAME FROM SYS_REGION WHERE REGION_ID = SS.REGION_ID) AS region_name,
+<!--      ( SELECT value FROM com_code_info where tab_name = 'APPLICATION_CONFIG' AND col_name='REGION_ID' AND key='1' and state='10A') AS region_name, -->
+      ss.mob_tel as tel
+            from SSO_USER_LOGIN_LOG su
+            left join sys_staff ss on su.staff_id = ss.staff_id
+            where su.ticket =   #{ticket,jdbcType=VARCHAR}
+            AND su.state='10A'
+            AND ss.state='10A'
+            AND exp_date > sysdate
+	</select>
+	
+	
+	<!-- 校验忘记密码用户是否为当前用户 -->
+	<select id="verifyCurrentUser"  resultType="int" parameterType="map">
+	  select count(*) from sys_staff ss 
+            where ss.state='10A'
+            AND ss.login_code =  #{user_code,jdbcType=VARCHAR}
+            AND ss.mob_tel =  #{phone,jdbcType=VARCHAR}
+	</select>
+	
+	
+	
+	
+	
+	
+	
+	
+</mapper>
