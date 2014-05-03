@@ -114,7 +114,11 @@
 		<artifactId>spring-aop</artifactId>
 		<version>${spring.version}</version>
 	</dependency>  
-    
+    <dependency>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-test</artifactId>
+			<version>${spring.version}</version>
+		</dependency>
     <!-- aspectj相关JAR包 -->
 	<dependency>
 	  <groupId>org.aspectj</groupId>
